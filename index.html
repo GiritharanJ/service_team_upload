@@ -2,13 +2,19 @@
 <button onclick="uploadCSV()">Upload</button>
 
 <script>
-function uploadCSV(){
+
+async function uploadCSV(){
 
 const file = document.getElementById("csvFile").files[0];
 
+if(!file){
+alert("Please select CSV file");
+return;
+}
+
 const reader = new FileReader();
 
-reader.onload = function(e){
+reader.onload = async function(e){
 
 const rows = e.target.result.split("\n");
 
@@ -17,6 +23,8 @@ const data = [];
 rows.forEach(r => {
 
 const c = r.split(",");
+
+if(c.length < 6) return;
 
 data.push({
 title:c[0],
@@ -29,14 +37,17 @@ website:c[5]
 
 });
 
-fetch("YOUR_SCRIPT_URL",{
+await fetch("https://script.google.com/macros/s/AKfycbxKRnKaxW_tp05MRnx-K6YGCsnLu2cnhOiK4r0u05I8QL8JyZh-NR20JdkXEZbM4UHA/execE",{
 method:"POST",
 body:JSON.stringify(data)
 });
+
+alert("Upload Complete");
 
 };
 
 reader.readAsText(file);
 
 }
+
 </script>
