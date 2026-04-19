@@ -88,15 +88,6 @@
 <script>
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxKRnKaxW_tp05MRnx-K6YGCsnLu2cnhOiK4r0u05I8QL8JyZh-NR20JdkXEZbM4UHA/exec";
 
-  const COL = {
-    title:            0,
-    category:         1,
-    address:          2,
-    phone:            3,
-    complete_address: 29,
-    website:          35
-  };
-
   let files = [];
   let statusMap = {};
 
@@ -143,7 +134,7 @@
     const el = document.querySelector(`#fi-${CSS.escape(name)} .file-status`);
     if (el) {
       const labels = { pending:'Pending', uploading:'Uploading…', done:'Done', error:'Error' };
-      el.className  = `file-status status-${s}`;
+      el.className   = `file-status status-${s}`;
       el.textContent = labels[s];
     }
     updateStats();
@@ -165,19 +156,52 @@
 
   function parseCSV(text) {
     const lines = text.split(/\r?\n/).filter(l => l.trim());
-    let start = 0;
-    const first = lines[0].toLowerCase();
-    if (first.includes('title') || first.includes('phone') || first.includes('name')) start = 1;
+    if (lines.length < 2) return [];
+
+    // Step 1 — read header row, map column names to indexes
+    const headers = smartSplit(lines[0]).map(h => h.toLowerCase().trim());
+    const col = name => headers.indexOf(name); // returns -1 if not found
+
+    const iTitle    = col('title');
+    const iPhone    = col('phone');
+    const iCategory = col('category');
+    const iAddress  = col('address');
+    const iWebsite  = col('website');
+    const iCA       = col('complete_address');
+
+    // Detect if first row is actually a header
+    const hasHeaders = iTitle >= 0 || iPhone >= 0;
+
+    // Legacy fallback indexes (old CSV format: title=0, category=1, address=2, phone=3)
+    const LEG = { title:0, category:1, address:2, phone:3, complete_address:29, website:35 };
 
     const rows = [];
+    const start = hasHeaders ? 1 : 0;
+
     for (let i = start; i < lines.length; i++) {
       const c = smartSplit(lines[i]);
-      if (c.length < 4) continue;
+      if (c.length < 3) continue;
 
-      let district = '';
-      let constituency = '';
+      // Step 2 — get value by header index, fall back to legacy index
+      const get = (hIdx, legIdx) => {
+        const idx = hasHeaders ? hIdx : legIdx;
+        return (idx >= 0 && idx < c.length) ? (c[idx] || '').trim() : '';
+      };
+
+      const title    = get(iTitle,    LEG.title);
+      const phone    = get(iPhone,    LEG.phone);
+      const category = get(iCategory, LEG.category);
+      const address  = get(iAddress,  LEG.address);
+      const website  = get(iWebsite,  LEG.website);
+
+      if (!title && !phone) continue; // skip blank rows
+
+      // Step 3 — parse complete_address JSON for district + constituency
+      let district = '', constituency = '';
       try {
-        const ca = JSON.parse(c[COL.complete_address] || '{}');
+        const caIdx = hasHeaders ? iCA : LEG.complete_address;
+        const raw   = (caIdx >= 0 && caIdx < c.length) ? c[caIdx] : '';
+        const ca    = JSON.parse(raw || '{}');
         district     = (ca.city    || '').trim();
         constituency = (ca.borough || '').trim();
         // "Kiliapattu, TIRUVANNAMALAI" → take last part as district
@@ -186,31 +210,19 @@
         }
       } catch (_) {}
 
-      rows.push({
-        title:        (c[COL.title]    || '').trim(),
-        phone:        (c[COL.phone]    || '').trim(),
-        category:     (c[COL.category] || '').trim(),
-        address:      (c[COL.address]  || '').trim(),
-        district:     district,
-        constituency: constituency,
-        website:      (c[COL.website]  || '').trim()
-      });
+      rows.push({ title, phone, category, address, district, constituency, website });
     }
     return rows;
   }
 
-  // ✅ Fixed: handles "" escaped quotes inside quoted CSV fields
+  // Handles "" escaped quotes inside quoted CSV fields (e.g. JSON in complete_address)
   function smartSplit(line) {
     const result = []; let cur = ''; let inQ = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '"') {
-        if (inQ && line[i + 1] === '"') {
-          cur += '"';  // "" inside quotes = literal "
-          i++;         // skip second quote
-        } else {
-          inQ = !inQ;  // toggle quoted mode
-        }
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; } // "" = literal "
+        else { inQ = !inQ; }
       } else if (ch === ',' && !inQ) {
         result.push(cur); cur = '';
       } else {
