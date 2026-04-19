@@ -1,53 +1,222 @@
-<input type="file" id="csvFile">
-<button onclick="uploadCSV()">Upload</button>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Sora',sans-serif;background:var(--color-background-tertiary);color:var(--color-text-primary);min-height:100vh;padding:2rem 1rem}
+  h2.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  .wrap{max-width:680px;margin:0 auto}
+  .header{text-align:center;margin-bottom:2rem}
+  .header h1{font-size:22px;font-weight:600;letter-spacing:-0.5px}
+  .header p{font-size:14px;color:var(--color-text-secondary);margin-top:6px}
+  .card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem;margin-bottom:1rem}
+  .drop-zone{border:1.5px dashed var(--color-border-secondary);border-radius:var(--border-radius-md);padding:2.5rem 1rem;text-align:center;cursor:pointer;transition:background 0.15s}
+  .drop-zone:hover,.drop-zone.drag-over{background:var(--color-background-secondary)}
+  .drop-icon{font-size:28px;margin-bottom:10px}
+  .drop-zone h3{font-size:15px;font-weight:500;margin-bottom:6px}
+  .drop-zone p{font-size:13px;color:var(--color-text-secondary)}
+  #fileInput{display:none}
+  .file-list{margin-top:1rem;display:flex;flex-direction:column;gap:8px}
+  .file-item{display:flex;align-items:center;justify-content:space-between;background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13px}
+  .file-name{font-family:'DM Mono',monospace;font-size:12px;color:var(--color-text-primary)}
+  .file-status{font-size:12px;font-weight:500;padding:3px 10px;border-radius:20px}
+  .status-pending{background:#F1EFE8;color:#5F5E5A}
+  .status-uploading{background:#E6F1FB;color:#185FA5}
+  .status-done{background:#EAF3DE;color:#3B6D11}
+  .status-error{background:#FCEBEB;color:#A32D2D}
+  .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem}
+  .stat{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:0.75rem 1rem;text-align:center}
+  .stat-num{font-size:22px;font-weight:600;font-family:'DM Mono',monospace}
+  .stat-label{font-size:12px;color:var(--color-text-secondary);margin-top:2px}
+  .num-total{color:var(--color-text-primary)}
+  .num-done{color:#3B6D11}
+  .num-error{color:#A32D2D}
+  .btn-row{display:flex;gap:10px;margin-top:1rem}
+  button{flex:1;padding:10px 16px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);font-family:'Sora',sans-serif;font-size:14px;font-weight:500;cursor:pointer;background:transparent;color:var(--color-text-primary);transition:background 0.12s}
+  button:hover{background:var(--color-background-secondary)}
+  button.primary{background:#4285F4;color:#fff;border-color:#4285F4}
+  button.primary:hover{background:#2b70d9}
+  button:disabled{opacity:0.45;cursor:not-allowed}
+  .log{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;font-family:'DM Mono',monospace;font-size:12px;max-height:180px;overflow-y:auto;color:var(--color-text-secondary);line-height:1.8}
+  .log-entry{display:flex;gap:8px}
+  .log-ok{color:#3B6D11}
+  .log-err{color:#A32D2D}
+  .log-info{color:#185FA5}
+  .csv-hint{font-size:12px;color:var(--color-text-secondary);margin-top:0.75rem;line-height:1.8}
+  .csv-hint code{background:var(--color-background-secondary);padding:2px 6px;border-radius:4px;font-family:'DM Mono',monospace;font-size:11px}
+</style>
+<h2 class="sr-only">Service Partner CSV Uploader — upload one or more CSV files to sync data into Google Sheets</h2>
+<div class="wrap">
+  <div class="header">
+    <h1>Service Partner Upload</h1>
+    <p>Upload multiple CSVs → Apps Script → Google Sheet</p>
+  </div>
+
+  <div class="card">
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="drop-icon">📂</div>
+      <h3>Drop CSV files here or click to browse</h3>
+      <p>Multiple files supported &middot; auto-detects District &amp; Constituency from Address</p>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".csv">
+    <div class="csv-hint">
+      Expected columns (order matters): <code>Title</code> <code>Phone</code> <code>Category</code> <code>Address</code> <code>District</code> <code>Constituency</code> <code>Website</code><br>
+      Missing <code>District</code> / <code>Constituency</code>? Leave blank — the script will auto-fill from Address.
+    </div>
+    <div class="file-list" id="fileList"></div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-num num-total" id="sTotal">0</div><div class="stat-label">Files queued</div></div>
+    <div class="stat"><div class="stat-num num-done" id="sDone">0</div><div class="stat-label">Uploaded</div></div>
+    <div class="stat"><div class="stat-num num-error" id="sErr">0</div><div class="stat-label">Errors</div></div>
+  </div>
+
+  <div class="btn-row">
+    <button id="clearBtn" onclick="clearAll()">Clear</button>
+    <button id="uploadBtn" class="primary" onclick="uploadAll()" disabled>Upload All ↗</button>
+  </div>
+
+  <div class="card" style="margin-top:1rem">
+    <div class="log" id="log"><span style="color:var(--color-text-secondary)">Waiting for files…</span></div>
+  </div>
+</div>
 
 <script>
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_hKeQSlrYwsUphhnwwAPOm1kM6oJNuO7HeOmv23sPT4T68Ig8EuPnGV25JHQPocEz/exec";
+const COL = {title:0,phone:1,category:2,address:3,district:4,constituency:5,website:6};
 
-async function uploadCSV(){
+let files = [];
+let statusMap = {};
 
-const file = document.getElementById("csvFile").files[0];
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileList  = document.getElementById('fileList');
+const log       = document.getElementById('log');
+const uploadBtn = document.getElementById('uploadBtn');
 
-if(!file){
-alert("Please select CSV file");
-return;
+dropZone.addEventListener('dragover', e=>{e.preventDefault();dropZone.classList.add('drag-over')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e=>{e.preventDefault();dropZone.classList.remove('drag-over');addFiles(e.dataTransfer.files)});
+fileInput.addEventListener('change', e=>addFiles(e.target.files));
+
+function addFiles(fl){
+  Array.from(fl).forEach(f=>{
+    if(!f.name.endsWith('.csv')) return addLog('Skipped (not CSV): '+f.name,'err');
+    if(files.find(x=>x.name===f.name&&x.size===f.size)) return;
+    files.push(f);
+    statusMap[f.name]='pending';
+  });
+  renderList();
+  updateStats();
+  uploadBtn.disabled = files.length === 0;
+  log.innerHTML='';
+  addLog(files.length+' file(s) ready to upload','info');
 }
 
-const reader = new FileReader();
-
-reader.onload = async function(e){
-
-const rows = e.target.result.split("\n");
-
-const data = [];
-
-rows.forEach(r => {
-
-const c = r.split(",");
-
-if(c.length < 6) return;
-
-data.push({
-title:c[0],
-phone:c[1],
-category:c[2],
-district:c[3],
-constituency:c[4],
-website:c[5]
-});
-
-});
-
-await fetch("https://script.google.com/macros/s/AKfycbxKRnKaxW_tp05MRnx-K6YGCsnLu2cnhOiK4r0u05I8QL8JyZh-NR20JdkXEZbM4UHA/exec",{
-method:"POST",
-body:JSON.stringify(data)
-});
-
-alert("Upload Complete");
-
-};
-
-reader.readAsText(file);
-
+function renderList(){
+  fileList.innerHTML='';
+  files.forEach(f=>{
+    const s = statusMap[f.name]||'pending';
+    const labels={pending:'Pending',uploading:'Uploading…',done:'Done',error:'Error'};
+    fileList.insertAdjacentHTML('beforeend',
+      `<div class="file-item" id="fi-${CSS.escape(f.name)}">
+        <span class="file-name">${f.name}</span>
+        <span class="file-status status-${s}">${labels[s]}</span>
+      </div>`);
+  });
 }
 
+function setStatus(name,s){
+  statusMap[name]=s;
+  const el=document.querySelector(`#fi-${CSS.escape(name)} .file-status`);
+  if(el){
+    const labels={pending:'Pending',uploading:'Uploading…',done:'Done',error:'Error'};
+    el.className=`file-status status-${s}`;
+    el.textContent=labels[s];
+  }
+  updateStats();
+}
+
+function updateStats(){
+  document.getElementById('sTotal').textContent=files.length;
+  document.getElementById('sDone').textContent=Object.values(statusMap).filter(v=>v==='done').length;
+  document.getElementById('sErr').textContent=Object.values(statusMap).filter(v=>v==='error').length;
+}
+
+function addLog(msg,type='info'){
+  const cls=type==='ok'?'log-ok':type==='err'?'log-err':'log-info';
+  const time=new Date().toLocaleTimeString('en-IN',{hour12:false});
+  const was=log.innerHTML==='<span style="color:var(--color-text-secondary)">Waiting for files…</span>'?'':log.innerHTML;
+  log.innerHTML=was+`<div class="log-entry"><span style="color:var(--color-text-secondary)">${time}</span><span class="${cls}">${msg}</span></div>`;
+  log.scrollTop=log.scrollHeight;
+}
+
+function parseCSV(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  let start=0;
+  const first=lines[0].toLowerCase();
+  if(first.includes('title')||first.includes('phone')||first.includes('name')) start=1;
+  const rows=[];
+  for(let i=start;i<lines.length;i++){
+    const c=smartSplit(lines[i]);
+    if(c.length<2) continue;
+    rows.push({
+      title:       (c[COL.title]       ||'').trim(),
+      phone:       (c[COL.phone]       ||'').trim(),
+      category:    (c[COL.category]    ||'').trim(),
+      address:     (c[COL.address]     ||'').trim(),
+      district:    (c[COL.district]    ||'').trim(),
+      constituency:(c[COL.constituency]||'').trim(),
+      website:     (c[COL.website]     ||'').trim()
+    });
+  }
+  return rows;
+}
+
+function smartSplit(line){
+  const result=[];let cur='';let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(ch==='"'){inQ=!inQ;}
+    else if(ch===','&&!inQ){result.push(cur);cur='';}
+    else cur+=ch;
+  }
+  result.push(cur);
+  return result;
+}
+
+async function uploadAll(){
+  uploadBtn.disabled=true;
+  document.getElementById('clearBtn').disabled=true;
+  for(const f of files){
+    if(statusMap[f.name]==='done') continue;
+    setStatus(f.name,'uploading');
+    addLog('Uploading '+f.name+'…','info');
+    try{
+      const text=await f.text();
+      const data=parseCSV(text);
+      if(!data.length){setStatus(f.name,'error');addLog(f.name+': no valid rows found','err');continue;}
+      const res=await fetch(APPS_SCRIPT_URL,{method:'POST',body:JSON.stringify(data)});
+      const json=await res.json().catch(()=>({success:true}));
+      if(json.success===false) throw new Error(json.error||'Unknown error');
+      setStatus(f.name,'done');
+      addLog(`${f.name}: inserted ${json.inserted||data.length} rows${json.skipped&&json.skipped.length?' ('+json.skipped.length+' skipped)':''}`, 'ok');
+    }catch(err){
+      setStatus(f.name,'error');
+      addLog(f.name+' failed: '+err.message,'err');
+    }
+  }
+  uploadBtn.disabled=false;
+  document.getElementById('clearBtn').disabled=false;
+  addLog('All done.','ok');
+}
+
+function clearAll(){
+  files=[];statusMap={};
+  fileList.innerHTML='';
+  log.innerHTML='<span style="color:var(--color-text-secondary)">Waiting for files…</span>';
+  uploadBtn.disabled=true;
+  updateStats();
+  fileInput.value='';
+}
 </script>
