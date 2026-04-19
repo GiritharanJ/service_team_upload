@@ -1,0 +1,42 @@
+<input type="file" id="csvFile">
+<button onclick="uploadCSV()">Upload</button>
+
+<script>
+function uploadCSV(){
+
+const file = document.getElementById("csvFile").files[0];
+
+const reader = new FileReader();
+
+reader.onload = function(e){
+
+const rows = e.target.result.split("\n");
+
+const data = [];
+
+rows.forEach(r => {
+
+const c = r.split(",");
+
+data.push({
+title:c[0],
+phone:c[1],
+category:c[2],
+district:c[3],
+constituency:c[4],
+website:c[5]
+});
+
+});
+
+fetch("YOUR_SCRIPT_URL",{
+method:"POST",
+body:JSON.stringify(data)
+});
+
+};
+
+reader.readAsText(file);
+
+}
+</script>
