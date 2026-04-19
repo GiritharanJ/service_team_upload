@@ -87,7 +87,15 @@
 
 <script>
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxKRnKaxW_tp05MRnx-K6YGCsnLu2cnhOiK4r0u05I8QL8JyZh-NR20JdkXEZbM4UHA/exec";
-  const COL = {title:0, phone:1, category:2, address:3, district:4, constituency:5, website:6};
+
+  const COL = {
+    title:            0,
+    category:         1,
+    address:          2,
+    phone:            3,
+    complete_address: 29,
+    website:          35
+  };
 
   let files = [];
   let statusMap = {};
@@ -121,7 +129,7 @@
     fileList.innerHTML = '';
     files.forEach(f => {
       const s = statusMap[f.name] || 'pending';
-      const labels = {pending:'Pending', uploading:'Uploading…', done:'Done', error:'Error'};
+      const labels = { pending:'Pending', uploading:'Uploading…', done:'Done', error:'Error' };
       fileList.insertAdjacentHTML('beforeend',
         `<div class="file-item" id="fi-${CSS.escape(f.name)}">
           <span class="file-name">${f.name}</span>
@@ -134,8 +142,8 @@
     statusMap[name] = s;
     const el = document.querySelector(`#fi-${CSS.escape(name)} .file-status`);
     if (el) {
-      const labels = {pending:'Pending', uploading:'Uploading…', done:'Done', error:'Error'};
-      el.className = `file-status status-${s}`;
+      const labels = { pending:'Pending', uploading:'Uploading…', done:'Done', error:'Error' };
+      el.className  = `file-status status-${s}`;
       el.textContent = labels[s];
     }
     updateStats();
@@ -149,7 +157,7 @@
 
   function addLog(msg, type = 'info') {
     const cls  = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : 'log-info';
-    const time = new Date().toLocaleTimeString('en-IN', {hour12: false});
+    const time = new Date().toLocaleTimeString('en-IN', { hour12: false });
     if (log.textContent === 'Waiting for files…') log.innerHTML = '';
     log.innerHTML += `<div class="log-entry"><span style="color:#aaa">${time}</span><span class="${cls}">${msg}</span></div>`;
     log.scrollTop = log.scrollHeight;
@@ -160,30 +168,54 @@
     let start = 0;
     const first = lines[0].toLowerCase();
     if (first.includes('title') || first.includes('phone') || first.includes('name')) start = 1;
+
     const rows = [];
     for (let i = start; i < lines.length; i++) {
       const c = smartSplit(lines[i]);
-      if (c.length < 2) continue;
+      if (c.length < 4) continue;
+
+      let district = '';
+      let constituency = '';
+      try {
+        const ca = JSON.parse(c[COL.complete_address] || '{}');
+        district     = (ca.city    || '').trim();
+        constituency = (ca.borough || '').trim();
+        // "Kiliapattu, TIRUVANNAMALAI" → take last part as district
+        if (district.includes(',')) {
+          district = district.split(',').pop().trim();
+        }
+      } catch (_) {}
+
       rows.push({
-        title:        (c[COL.title]        || '').trim(),
-        phone:        (c[COL.phone]        || '').trim(),
-        category:     (c[COL.category]     || '').trim(),
-        address:      (c[COL.address]      || '').trim(),
-        district:     (c[COL.district]     || '').trim(),
-        constituency: (c[COL.constituency] || '').trim(),
-        website:      (c[COL.website]      || '').trim()
+        title:        (c[COL.title]    || '').trim(),
+        phone:        (c[COL.phone]    || '').trim(),
+        category:     (c[COL.category] || '').trim(),
+        address:      (c[COL.address]  || '').trim(),
+        district:     district,
+        constituency: constituency,
+        website:      (c[COL.website]  || '').trim()
       });
     }
     return rows;
   }
 
+  // ✅ Fixed: handles "" escaped quotes inside quoted CSV fields
   function smartSplit(line) {
     const result = []; let cur = ''; let inQ = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
-      else cur += ch;
+      if (ch === '"') {
+        if (inQ && line[i + 1] === '"') {
+          cur += '"';  // "" inside quotes = literal "
+          i++;         // skip second quote
+        } else {
+          inQ = !inQ;  // toggle quoted mode
+        }
+      } else if (ch === ',' && !inQ) {
+        result.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
     }
     result.push(cur);
     return result;
@@ -204,7 +236,6 @@
           addLog(f.name + ': no valid rows found', 'err');
           continue;
         }
-        // ✅ no-cors fixes the "Failed to fetch" CORS error
         await fetch(APPS_SCRIPT_URL, {
           method: "POST",
           mode:   "no-cors",
